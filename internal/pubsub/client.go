@@ -96,3 +96,23 @@ func (c *Client) Receive(ctx context.Context, sub *pubsub.Subscription, handler 
 		msg.Ack()
 	})
 }
+
+// ReceiveVerification wraps the subscription Receive method for verification emails
+func (c *Client) ReceiveVerification(ctx context.Context, sub *pubsub.Subscription, handler func(context.Context, *models.VerificationEmailPayload) error) error {
+	return sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		var payload models.VerificationEmailPayload
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			log.Printf("Failed to unmarshal verification message: %v", err)
+			msg.Nack()
+			return
+		}
+
+		if err := handler(ctx, &payload); err != nil {
+			log.Printf("Failed to handle verification message: %v", err)
+			msg.Nack()
+			return
+		}
+
+		msg.Ack()
+	})
+}

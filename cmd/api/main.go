@@ -30,12 +30,19 @@ func main() {
 		log.Fatalf("Failed to ensure topic: %v", err)
 	}
 
+	// Ensure verification topic exists
+	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopicID)
+	if err != nil {
+		log.Fatalf("Failed to ensure verification topic: %v", err)
+	}
+
 	// Initialize services
-	emailService := email.NewService(topic)
+	emailService := email.NewServiceWithVerification(topic, verificationTopic)
 	emailHandler := handlers.NewEmailHandler(emailService)
 
 	// Setup routes
 	http.HandleFunc("/send-email", emailHandler.SendEmail)
+	http.HandleFunc("/send-verification-email", handlers.SendVerificationEmail(emailService))
 
 	// Start server
 	addr := ":" + cfg.Host

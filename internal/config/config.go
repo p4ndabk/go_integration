@@ -9,10 +9,12 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	ProjectID string
-	Host      string
-	TopicID   string
-	SubID     string
+	ProjectID           string
+	Host                string
+	TopicID             string
+	SubID               string
+	VerificationTopicID string
+	VerificationSubID   string
 }
 
 // Load loads configuration from environment variables and .env file
@@ -23,10 +25,12 @@ func Load() *Config {
 	}
 
 	return &Config{
-		ProjectID: getEnv("PUBSUB_PROJECT_ID", "test-project"),
-		Host:      getEnv("HOST", "8080"),
-		TopicID:   getEnv("TOPIC_ID", "send-email"),
-		SubID:     getEnv("SUBSCRIPTION_ID", "send-email-sub"),
+		ProjectID:           getEnv("PUBSUB_PROJECT_ID", "test-project"),
+		Host:                getEnv("HOST", "8080"),
+		TopicID:             getEnv("TOPIC_ID", "send-email"),
+		SubID:               getEnv("SUBSCRIPTION_ID", "send-email-sub"),
+		VerificationTopicID: getEnv("VERIFICATION_TOPIC_ID", "email-verification"),
+		VerificationSubID:   getEnv("VERIFICATION_SUB_ID", "email-verification-sub"),
 	}
 }
 

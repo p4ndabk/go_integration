@@ -1,6 +1,9 @@
 package models
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrMissingRecipient is returned when the "to" field is empty
@@ -12,3 +15,13 @@ var (
 	// ErrMissingBody is returned when the "body" field is empty
 	ErrMissingBody = errors.New("email body is required")
 )
+
+// ValidationError represents a field validation error
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (v *ValidationError) Error() string {
+	return fmt.Sprintf("validation error for field '%s': %s", v.Field, v.Message)
+}

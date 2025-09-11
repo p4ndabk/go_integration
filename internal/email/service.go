@@ -20,13 +20,22 @@ const (
 
 // Service handles email-related operations
 type Service struct {
-	topic *pubsub.Topic
+	emailTopic        *pubsub.Topic
+	verificationTopic *pubsub.Topic
 }
 
 // NewService creates a new email service
-func NewService(topic *pubsub.Topic) *Service {
+func NewService(emailTopic *pubsub.Topic) *Service {
 	return &Service{
-		topic: topic,
+		emailTopic: emailTopic,
+	}
+}
+
+// NewServiceWithVerification creates a new email service with verification support
+func NewServiceWithVerification(emailTopic, verificationTopic *pubsub.Topic) *Service {
+	return &Service{
+		emailTopic:        emailTopic,
+		verificationTopic: verificationTopic,
 	}
 }
 
@@ -41,7 +50,7 @@ func (s *Service) SendEmail(ctx context.Context, payload *models.EmailPayload) (
 		return "", fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	result := s.topic.Publish(ctx, &pubsub.Message{Data: data})
+	result := s.emailTopic.Publish(ctx, &pubsub.Message{Data: data})
 	id, err := result.Get(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to publish message: %w", err)
@@ -49,6 +58,31 @@ func (s *Service) SendEmail(ctx context.Context, payload *models.EmailPayload) (
 
 	log.Printf("Published email message with ID: %s", id)
 	return id, nil
+}
+
+// PublishVerificationEmail publishes a verification email message to the verification topic
+func (s *Service) PublishVerificationEmail(ctx context.Context, payload *models.VerificationEmailPayload) error {
+	if s.verificationTopic == nil {
+		return fmt.Errorf("verification topic not configured")
+	}
+
+	if err := payload.Validate(); err != nil {
+		return fmt.Errorf("invalid payload: %w", err)
+	}
+
+	data, err := payload.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	result := s.verificationTopic.Publish(ctx, &pubsub.Message{Data: data})
+	id, err := result.Get(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to publish verification message: %w", err)
+	}
+
+	log.Printf("Published verification email message with ID: %s", id)
+	return nil
 }
 
 // MessageHandler defines the function signature for processing messages
