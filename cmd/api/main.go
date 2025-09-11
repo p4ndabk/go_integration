@@ -2,76 +2,43 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
-	"cloud.google.com/go/pubsub"
-	"github.com/joho/godotenv"
+	"go_integration/internal/config"
+	"go_integration/internal/email"
+	"go_integration/internal/handlers"
+	"go_integration/internal/pubsub"
 )
 
-type EmailPayload struct {
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
-}
-
-var topic *pubsub.Topic
-
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("Não foi possível carregar .env")
-	}
-
-	projectID := os.Getenv("PUBSUB_PROJECT_ID")
-	topicID := "send-email"
+	cfg := config.Load()
 
 	ctx := context.Background()
-	client, err := pubsub.NewClient(ctx, projectID)
+
+	// Initialize Pub/Sub client
+	client, err := pubsub.NewClient(ctx, cfg.ProjectID)
 	if err != nil {
-		log.Fatalf("Erro ao criar client: %v", err)
+		log.Fatalf("Failed to create pub/sub client: %v", err)
 	}
+	defer client.Close()
 
-	topic = client.Topic(topicID)
-	exists, err := topic.Exists(ctx)
+	// Ensure topic exists
+	topic, err := client.EnsureTopic(ctx, cfg.TopicID)
 	if err != nil {
-		log.Fatalf("Erro ao checar tópico: %v", err)
-	}
-	if !exists {
-		topic, _ = client.CreateTopic(ctx, topicID)
+		log.Fatalf("Failed to ensure topic: %v", err)
 	}
 
-	http.HandleFunc("/send-email", sendEmailHandler)
+	// Initialize services
+	emailService := email.NewService(topic)
+	emailHandler := handlers.NewEmailHandler(emailService)
 
-	port := os.Getenv("HOST")
-	fmt.Println("API rodando na porta", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
-}
+	// Setup routes
+	http.HandleFunc("/send-email", emailHandler.SendEmail)
 
-func sendEmailHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		fmt.Fprintln(w, "Apenas POST é permitido")
-		return
-	}
-
-	var payload EmailPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, "Payload inválido:", err)
-		return
-	}
-
-	data, _ := json.Marshal(payload)
-	result := topic.Publish(context.Background(), &pubsub.Message{Data: data})
-	id, err := result.Get(context.Background())
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, "Erro ao publicar mensagem:", err)
-		return
-	}
-
-	fmt.Fprintf(w, "Mensagem publicada com ID: %s\n", id)
+	// Start server
+	addr := ":" + cfg.Host
+	fmt.Printf("API rodando na porta %s\n", cfg.Host)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }

@@ -1,60 +1,73 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "os"
-	"encoding/json"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
-    "cloud.google.com/go/pubsub"
-    "github.com/joho/godotenv"
+	"go_integration/internal/config"
+	"go_integration/internal/models"
+	"go_integration/internal/pubsub"
 )
 
 func main() {
-    // Carrega .env
-    err := godotenv.Load()
-    if err != nil {
-        log.Println("Não foi possível carregar .env, usando variáveis do sistema")
-    }
+	cfg := config.Load()
 
-    ctx := context.Background()
-    projectID := os.Getenv("PUBSUB_PROJECT_ID")
-    topicID := "send-email"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-    client, err := pubsub.NewClient(ctx, projectID)
-    if err != nil {
-        log.Fatalf("Erro ao criar client: %v", err)
-    }
+	// Initialize Pub/Sub client
+	client, err := pubsub.NewClient(ctx, cfg.ProjectID)
+	if err != nil {
+		log.Fatalf("Failed to create pub/sub client: %v", err)
+	}
+	defer client.Close()
 
-    // Cria tópico se não existir
-    topic := client.Topic(topicID)
-    exists, _ := topic.Exists(ctx)
-    if !exists {
-        topic, _ = client.CreateTopic(ctx, topicID)
-    }
+	// Ensure topic exists
+	topic, err := client.EnsureTopic(ctx, cfg.TopicID)
+	if err != nil {
+		log.Fatalf("Failed to ensure topic: %v", err)
+	}
 
-    // Cria subscription
-    subID := "send-email-sub"
-    sub := client.Subscription(subID)
-    exists, _ = sub.Exists(ctx)
-    if !exists {
-        sub, _ = client.CreateSubscription(ctx, subID, pubsub.SubscriptionConfig{
-            Topic: topic,
-        })
-    }
+	// Ensure subscription exists
+	sub, err := client.EnsureSubscription(ctx, cfg.SubID, topic)
+	if err != nil {
+		log.Fatalf("Failed to ensure subscription: %v", err)
+	}
 
-    // Recebe mensagens
-    sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-        fmt.Println("Mensagem recebida:", string(msg.Data))
-		var data struct {
-			To      string `json:"to"`
-			Subject string `json:"subject"`
-			Body    string `json:"body"`
+	// Setup graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	log.Printf("Starting to receive messages from subscription: %s", cfg.SubID)
+
+	// Start receiving messages
+	go func() {
+		err := client.Receive(ctx, sub, handleEmailMessage)
+		if err != nil {
+			log.Printf("Error receiving messages: %v", err)
+			cancel()
 		}
-		if err := json.Unmarshal(msg.Data, &data); err == nil {
-			fmt.Println("email enviado para:", data.To, "Mensagem:", data.Body, "Assunto:", data.Subject)
-		}
-        msg.Ack()
-    })
+	}()
+
+	// Wait for shutdown signal
+	<-sigChan
+	log.Println("Shutting down gracefully...")
+	cancel()
+}
+
+// handleEmailMessage simulates processing an email message
+func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error {
+	fmt.Printf("📧 Email enviado para: %s\n", payload.To)
+	fmt.Printf("   Assunto: %s\n", payload.Subject)
+	fmt.Printf("   Mensagem: %s\n", payload.Body)
+	fmt.Println()
+
+	// Here you would integrate with actual email service
+	// like SendGrid, AWS SES, etc.
+
+	return nil
 }
