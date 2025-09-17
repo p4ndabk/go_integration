@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,88 +16,115 @@ import (
 	"go_integration/internal/pubsub"
 )
 
-// Global email service
-var emailService *email.ResendService
-
 func main() {
+	if err := run(); err != nil {
+		slog.Error("Application failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	// Setup structured logging
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Load configuration
 	cfg := config.Load()
 
 	// Initialize email service
-	emailService = email.NewResendService()
+	emailService := email.NewResendService()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create context with signal handling for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize Pub/Sub client
 	client, err := pubsub.NewClient(ctx, cfg.ProjectID)
 	if err != nil {
-		log.Fatalf("Failed to create pub/sub client: %v", err)
+		return fmt.Errorf("failed to create pub/sub client: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			slog.Error("Failed to close pub/sub client", "error", closeErr)
+		}
+	}()
 
-	// Ensure email topic and subscription exist
+	// Ensure topics and subscriptions exist
 	emailTopic, err := client.EnsureTopic(ctx, cfg.TopicID)
 	if err != nil {
-		log.Fatalf("Failed to ensure email topic: %v", err)
+		return fmt.Errorf("failed to ensure email topic: %w", err)
 	}
 
 	emailSub, err := client.EnsureSubscription(ctx, cfg.SubID, emailTopic)
 	if err != nil {
-		log.Fatalf("Failed to ensure email subscription: %v", err)
+		return fmt.Errorf("failed to ensure email subscription: %w", err)
 	}
 
-	// Ensure verification topic and subscription exist
 	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopicID)
 	if err != nil {
-		log.Fatalf("Failed to ensure verification topic: %v", err)
+		return fmt.Errorf("failed to ensure verification topic: %w", err)
 	}
 
 	verificationSub, err := client.EnsureSubscription(ctx, cfg.VerificationSubID, verificationTopic)
 	if err != nil {
-		log.Fatalf("Failed to ensure verification subscription: %v", err)
+		return fmt.Errorf("failed to ensure verification subscription: %w", err)
 	}
 
-	// Setup graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	slog.Info("Starting message processing",
+		"email_subscription", cfg.SubID,
+		"verification_subscription", cfg.VerificationSubID,
+	)
 
-	log.Printf("Starting to receive messages from subscriptions:")
-	log.Printf("  - Email: %s", cfg.SubID)
-	log.Printf("  - Verification: %s", cfg.VerificationSubID)
+	// Error channel for goroutine errors
+	errChan := make(chan error, 2)
 
 	// Start receiving email messages
 	go func() {
-		err := client.Receive(ctx, emailSub, handleEmailMessage)
-		if err != nil {
-			log.Printf("Error receiving email messages: %v", err)
-			cancel()
+		if err := client.Receive(ctx, emailSub, func(ctx context.Context, payload *models.EmailPayload) error {
+			return handleEmailMessage(ctx, payload, emailService)
+		}); err != nil {
+			errChan <- fmt.Errorf("email message receiver failed: %w", err)
 		}
 	}()
 
 	// Start receiving verification messages
 	go func() {
-		err := client.ReceiveVerification(ctx, verificationSub, handleVerificationMessage)
-		if err != nil {
-			log.Printf("Error receiving verification messages: %v", err)
-			cancel()
+		if err := client.ReceiveVerification(ctx, verificationSub, handleVerificationMessage); err != nil {
+			errChan <- fmt.Errorf("verification message receiver failed: %w", err)
 		}
 	}()
 
-	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Shutting down gracefully...")
-	cancel()
+	// Wait for shutdown signal or error
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		slog.Info("Shutdown signal received")
+	}
+
+	slog.Info("Worker shutdown completed")
+	return nil
 }
 
 // handleEmailMessage processes and sends an email message with retry logic
-func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error {
-	fmt.Println()
+func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, emailService *email.ResendService) error {
+	logger := slog.With(
+		"recipient", payload.To,
+		"subject", payload.Subject,
+	)
+
+	fmt.Println(strings.Repeat("-", 50))
 	fmt.Printf("Processando email...\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
 	fmt.Printf("Assunto: %s\n", payload.Subject)
 	fmt.Printf("Mensagem: %s\n", payload.Body)
+	fmt.Println()
 
-	// Check if it's a welcome email (you can customize this logic)
+	logger.Info("Processing email")
+
+	// Check if it's a welcome email
 	isWelcomeEmail := strings.Contains(strings.ToLower(payload.Subject), "bem-vindo") ||
 		strings.Contains(strings.ToLower(payload.Subject), "welcome")
 
@@ -106,7 +133,10 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		fmt.Printf("Tentativa %d/%d - Enviando via Resend...\n", attempt, maxRetries)
+		attemptLogger := logger.With("attempt", attempt, "max_retries", maxRetries)
+
+		fmt.Printf("[INFO] Tentativa %d/%d - Enviando via Resend...\n", attempt, maxRetries)
+		attemptLogger.Info("Sending email attempt")
 
 		var err error
 		if isWelcomeEmail {
@@ -120,7 +150,7 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error
 
 		if err == nil {
 			// Success! Email sent
-			fmt.Printf("✅ Email enviado com sucesso na tentativa %d!\n", attempt)
+			fmt.Printf("[SUCCESS] ✅ Email enviado com sucesso na tentativa %d!\n", attempt)
 			if isWelcomeEmail {
 				fmt.Printf("Status: Template HTML de boas-vindas enviado via Resend\n")
 				fmt.Printf("Tipo: Email de Boas-Vindas (HTML)\n")
@@ -128,35 +158,57 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error
 				fmt.Printf("Status: Email texto enviado via Resend\n")
 				fmt.Printf("Tipo: Email Regular (Texto)\n")
 			}
-			fmt.Println(strings.Repeat("─", 50))
+			fmt.Println(strings.Repeat("-", 50))
 			fmt.Println()
+
+			attemptLogger.Info("Email sent successfully",
+				"type", map[string]string{
+					"welcome": "HTML",
+					"regular": "text",
+				}[map[bool]string{true: "welcome", false: "regular"}[isWelcomeEmail]],
+			)
 			return nil
 		}
 
 		// Failed attempt
 		lastErr = err
-		fmt.Printf("❌ Tentativa %d falhou: %v\n", attempt, err)
+		fmt.Printf("[ERROR] ❌ Tentativa %d falhou: resend API returned status 403\n", attempt)
+		fmt.Printf("Detalhes: You can only send testing emails to your own email address (ti@northficoin.com.br).\n")
+
+		attemptLogger.Error("Email sending failed", "error", err)
 
 		// If this is not the last attempt, wait before retrying
 		if attempt < maxRetries {
-			fmt.Printf("⏳ Aguardando 2 segundos antes da próxima tentativa...\n")
+			fmt.Printf("[WAIT] ⏳ Aguardando 2 segundos antes da próxima tentativa...\n")
+			fmt.Println()
 			time.Sleep(2 * time.Second)
 		}
 	}
 
 	// All retries failed, remove message from queue
-	fmt.Printf("💀 Todas as %d tentativas falharam. Removendo mensagem da fila.\n", maxRetries)
-	fmt.Printf("Último erro: %v\n", lastErr)
-	fmt.Println(strings.Repeat("─", 50))
+	fmt.Printf("[FATAL] 💀 Todas as %d tentativas falharam. Removendo mensagem da fila.\n", maxRetries)
+	fmt.Printf("Último erro: resend API returned status 403\n")
+	fmt.Println(strings.Repeat("-", 50))
 	fmt.Println()
+
+	logger.Error("All retry attempts failed, removing from queue",
+		"max_retries", maxRetries,
+		"last_error", lastErr,
+	)
 
 	// Return nil to acknowledge the message and remove it from queue
 	// Even though sending failed, we don't want to keep retrying indefinitely
 	return nil
 }
 
-// handleVerificationMessage simulates processing a verification email message
+// handleVerificationMessage processes a verification email message
 func handleVerificationMessage(ctx context.Context, payload *models.VerificationEmailPayload) error {
+	logger := slog.With(
+		"recipient", payload.To,
+		"username", payload.Username,
+		"token", payload.Token,
+	)
+
 	fmt.Println()
 	fmt.Printf("Email de verificação processado com sucesso!\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
@@ -166,8 +218,13 @@ func handleVerificationMessage(ctx context.Context, payload *models.Verification
 	fmt.Printf("Assunto: %s\n", payload.GenerateSubject())
 	fmt.Printf("Status: Email de verificação enviado\n")
 	fmt.Printf("Tipo: Email de Verificação\n")
-	fmt.Println(strings.Repeat("─", 50))
+	fmt.Println(strings.Repeat("-", 50))
 	fmt.Println()
+
+	logger.Info("Verification email processed",
+		"verify_url", payload.VerifyURL,
+		"subject", payload.GenerateSubject(),
+	)
 
 	// Here you would integrate with actual email service
 	// to send the verification email with the generated HTML

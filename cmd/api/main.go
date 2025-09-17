@@ -33,7 +33,7 @@ func run() error {
 
 	// Load configuration
 	cfg := config.Load()
-	
+
 	// Create context with signal handling for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
