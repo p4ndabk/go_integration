@@ -83,7 +83,7 @@ func main() {
 
 // handleEmailMessage simulates processing an email message
 func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error {
-    fmt.Println()
+	fmt.Println()
 	fmt.Printf("Email processado com sucesso!\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
 	fmt.Printf("Assunto: %s\n", payload.Subject)
@@ -101,7 +101,7 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload) error
 
 // handleVerificationMessage simulates processing a verification email message
 func handleVerificationMessage(ctx context.Context, payload *models.VerificationEmailPayload) error {
-    fmt.Println()
+	fmt.Println()
 	fmt.Printf("Email de verificação processado com sucesso!\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
 	fmt.Printf("Usuário: %s\n", payload.Username)
