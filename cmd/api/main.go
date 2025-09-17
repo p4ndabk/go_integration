@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"go_integration/internal/config"
 	"go_integration/internal/email"
@@ -13,39 +18,91 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	if err := run(); err != nil {
+		slog.Error("Application failed", "error", err)
+		os.Exit(1)
+	}
+}
 
-	ctx := context.Background()
+func run() error {
+	// Setup structured logging
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	// Load configuration
+	cfg := config.Load()
+	
+	// Create context with signal handling for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize Pub/Sub client
 	client, err := pubsub.NewClient(ctx, cfg.ProjectID)
 	if err != nil {
-		log.Fatalf("Failed to create pub/sub client: %v", err)
+		return fmt.Errorf("failed to create pub/sub client: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			slog.Error("Failed to close pub/sub client", "error", closeErr)
+		}
+	}()
 
-	// Ensure topic exists
+	// Ensure topics exist
 	topic, err := client.EnsureTopic(ctx, cfg.TopicID)
 	if err != nil {
-		log.Fatalf("Failed to ensure topic: %v", err)
+		return fmt.Errorf("failed to ensure email topic: %w", err)
 	}
 
-	// Ensure verification topic exists
 	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopicID)
 	if err != nil {
-		log.Fatalf("Failed to ensure verification topic: %v", err)
+		return fmt.Errorf("failed to ensure verification topic: %w", err)
 	}
 
 	// Initialize services
 	emailService := email.NewServiceWithVerification(topic, verificationTopic)
 	emailHandler := handlers.NewEmailHandler(emailService)
 
-	// Setup routes
-	http.HandleFunc("/send-email", emailHandler.SendEmail)
-	http.HandleFunc("/send-verification-email", handlers.SendVerificationEmail(emailService))
+	// Setup HTTP router
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /send-email", emailHandler.SendEmail)
+	mux.HandleFunc("POST /send-verification-email", handlers.SendVerificationEmail(emailService))
 
-	// Start server
-	addr := ":" + cfg.Host
-	fmt.Printf("API rodando na porta %s\n", cfg.Host)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	// Configure HTTP server with proper timeouts
+	server := &http.Server{
+		Addr:         ":" + cfg.Host,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start server in a goroutine
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("Starting HTTP server", "addr", server.Addr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- fmt.Errorf("HTTP server failed: %w", err)
+		}
+	}()
+
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		slog.Info("Shutdown signal received")
+	}
+
+	// Graceful shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("server shutdown failed: %w", err)
+	}
+
+	slog.Info("Server shutdown completed")
+	return nil
 }
