@@ -141,7 +141,7 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, email
 		var err error
 		if isWelcomeEmail {
 			// Send HTML email for welcome messages
-			htmlContent := emailService.GetWelcomeEmailHTML("Usuário", "NorthFi")
+			htmlContent := email.GetWelcomeEmailHTML("Usuário", "NorthFi")
 			err = emailService.SendEmailWithHTML(payload.To, payload.Subject, htmlContent)
 		} else {
 			// Send regular text email
@@ -201,7 +201,7 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, email
 	return nil
 }
 
-// handleVerificationMessage processes a verification email message
+// handleVerificationMessage processes and sends a verification email message
 func handleVerificationMessage(ctx context.Context, payload *models.VerificationEmailPayload) error {
 	logger := slog.With(
 		"recipient", payload.To,
@@ -210,24 +210,72 @@ func handleVerificationMessage(ctx context.Context, payload *models.Verification
 	)
 
 	fmt.Println()
-	fmt.Printf("Email de verificação processado com sucesso!\n")
+	fmt.Printf("Processando email de verificação...\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
 	fmt.Printf("Usuário: %s\n", payload.Username)
 	fmt.Printf("Token: %s\n", payload.Token)
 	fmt.Printf("URL de verificação: %s\n", payload.VerifyURL)
-	fmt.Printf("Assunto: %s\n", payload.GenerateSubject())
-	fmt.Printf("Status: Email de verificação enviado\n")
-	fmt.Printf("Tipo: Email de Verificação\n")
+	fmt.Println()
+
+	logger.Info("Processing verification email")
+
+	// Create ResendService instance for verification email
+	resendService := email.NewResendService()
+
+	// Retry logic: attempt up to 3 times
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		attemptLogger := logger.With("attempt", attempt, "max_retries", maxRetries)
+
+		fmt.Printf("[INFO] Tentativa %d/%d - Enviando email de verificação via Resend...\n", attempt, maxRetries)
+		attemptLogger.Info("Sending verification email attempt")
+
+		// Generate HTML content for verification email
+		htmlContent := email.GetVerificationEmailHTML(payload.Username, "NorthFi", payload.VerifyURL)
+
+		// Send verification email with HTML template
+		err := resendService.SendEmailWithHTML(payload.To, payload.GenerateSubject(), htmlContent)
+
+		if err == nil {
+			// Success! Email sent
+			fmt.Printf("[SUCCESS] ✅ Email de verificação enviado com sucesso na tentativa %d!\n", attempt)
+			fmt.Printf("Status: Template HTML de verificação enviado via Resend\n")
+			fmt.Printf("Tipo: Email de Verificação (HTML)\n")
+			fmt.Println(strings.Repeat("-", 50))
+			fmt.Println()
+
+			attemptLogger.Info("Verification email sent successfully", "type", "HTML")
+			return nil
+		}
+
+		// Failed attempt
+		lastErr = err
+		fmt.Printf("[ERROR] ❌ Tentativa %d falhou: resend API returned error\n", attempt)
+		fmt.Printf("Detalhes: %v\n", err)
+
+		attemptLogger.Error("Verification email sending failed", "error", err)
+
+		// If this is not the last attempt, wait before retrying
+		if attempt < maxRetries {
+			fmt.Printf("[WAIT] ⏳ Aguardando 2 segundos antes da próxima tentativa...\n")
+			fmt.Println()
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	// All retries failed, remove message from queue
+	fmt.Printf("[FATAL] 💀 Todas as %d tentativas falharam. Removendo mensagem da fila.\n", maxRetries)
+	fmt.Printf("Último erro: %v\n", lastErr)
 	fmt.Println(strings.Repeat("-", 50))
 	fmt.Println()
 
-	logger.Info("Verification email processed",
-		"verify_url", payload.VerifyURL,
-		"subject", payload.GenerateSubject(),
+	logger.Error("All verification email retry attempts failed, removing from queue",
+		"max_retries", maxRetries,
+		"last_error", lastErr,
 	)
 
-	// Here you would integrate with actual email service
-	// to send the verification email with the generated HTML
-
+	// Return nil to acknowledge the message and remove it from queue
 	return nil
 }
