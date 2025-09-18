@@ -50,14 +50,14 @@ func run() error {
 	}()
 
 	// Ensure topics exist
-	topic, err := client.EnsureTopic(ctx, cfg.TopicID)
+	topic, err := client.EnsureTopic(ctx, cfg.EmailTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure email topic: %w", err)
+		return fmt.Errorf("failed to ensure email topic (%s): %w", cfg.EmailTopic, err)
 	}
 
-	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopicID)
+	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure verification topic: %w", err)
+		return fmt.Errorf("failed to ensure verification topic (%s): %w", cfg.VerificationTopic, err)
 	}
 
 	// Initialize services

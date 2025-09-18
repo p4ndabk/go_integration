@@ -52,29 +52,31 @@ func run() error {
 	}()
 
 	// Ensure topics and subscriptions exist
-	emailTopic, err := client.EnsureTopic(ctx, cfg.TopicID)
+	emailTopic, err := client.EnsureTopic(ctx, cfg.EmailTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure email topic: %w", err)
+		return fmt.Errorf("failed to ensure email topic (%s): %w", cfg.EmailTopic, err)
 	}
 
-	emailSub, err := client.EnsureSubscription(ctx, cfg.SubID, emailTopic)
+	emailSub, err := client.EnsureSubscription(ctx, cfg.EmailSubscription, emailTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure email subscription: %w", err)
+		return fmt.Errorf("failed to ensure email subscription (%s): %w", cfg.EmailSubscription, err)
 	}
 
-	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopicID)
+	verificationTopic, err := client.EnsureTopic(ctx, cfg.VerificationTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure verification topic: %w", err)
+		return fmt.Errorf("failed to ensure verification topic (%s): %w", cfg.VerificationTopic, err)
 	}
 
-	verificationSub, err := client.EnsureSubscription(ctx, cfg.VerificationSubID, verificationTopic)
+	verificationSub, err := client.EnsureSubscription(ctx, cfg.VerificationSubscription, verificationTopic)
 	if err != nil {
-		return fmt.Errorf("failed to ensure verification subscription: %w", err)
+		return fmt.Errorf("failed to ensure verification subscription (%s): %w", cfg.VerificationSubscription, err)
 	}
 
 	slog.Info("Starting message processing",
-		"email_subscription", cfg.SubID,
-		"verification_subscription", cfg.VerificationSubID,
+		"email_topic", cfg.EmailTopic,
+		"email_subscription", cfg.EmailSubscription,
+		"verification_topic", cfg.VerificationTopic,
+		"verification_subscription", cfg.VerificationSubscription,
 	)
 
 	// Error channel for goroutine errors

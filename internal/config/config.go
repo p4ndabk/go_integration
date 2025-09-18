@@ -9,12 +9,17 @@ import (
 
 // Config holds application configuration
 type Config struct {
-	ProjectID           string
-	Host                string
-	TopicID             string
-	SubID               string
-	VerificationTopicID string
-	VerificationSubID   string
+	// General application config
+	ProjectID string
+	Host      string
+
+	// Email processing topic and subscription
+	EmailTopic        string
+	EmailSubscription string
+
+	// Email verification topic and subscription
+	VerificationTopic        string
+	VerificationSubscription string
 }
 
 // Load loads configuration from environment variables and .env file
@@ -25,12 +30,12 @@ func Load() *Config {
 	}
 
 	return &Config{
-		ProjectID:           getEnv("PUBSUB_PROJECT_ID", "test-project"),
-		Host:                getEnv("HOST", "8080"),
-		TopicID:             getEnv("TOPIC_ID", "send-email"),
-		SubID:               getEnv("SUBSCRIPTION_ID", "send-email-sub"),
-		VerificationTopicID: getEnv("VERIFICATION_TOPIC_ID", "email-verification"),
-		VerificationSubID:   getEnv("VERIFICATION_SUB_ID", "email-verification-sub"),
+		ProjectID:                getEnv("PUBSUB_PROJECT_ID", "northfi-integration"),
+		Host:                     getEnv("HOST", "8080"),
+		EmailTopic:               getEnv("EMAIL_TOPIC", "northfi.email.processing.v1"),
+		EmailSubscription:        getEnv("EMAIL_SUBSCRIPTION", "northfi.email.processing.worker.v1"),
+		VerificationTopic:        getEnv("VERIFICATION_TOPIC", "northfi.email.verification.v1"),
+		VerificationSubscription: getEnv("VERIFICATION_SUBSCRIPTION", "northfi.email.verification.worker.v1"),
 	}
 }
 
