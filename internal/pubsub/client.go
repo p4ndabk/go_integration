@@ -116,3 +116,23 @@ func (c *Client) ReceiveVerification(ctx context.Context, sub *pubsub.Subscripti
 		msg.Ack()
 	})
 }
+
+// ReceiveUser wraps the subscription Receive method for user creation messages
+func (c *Client) ReceiveUser(ctx context.Context, sub *pubsub.Subscription, handler func(context.Context, *models.UserPayload) error) error {
+	return sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		var payload models.UserPayload
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			log.Printf("Failed to unmarshal user message: %v", err)
+			msg.Nack()
+			return
+		}
+
+		if err := handler(ctx, &payload); err != nil {
+			log.Printf("Failed to handle user message: %v", err)
+			msg.Nack()
+			return
+		}
+
+		msg.Ack()
+	})
+}

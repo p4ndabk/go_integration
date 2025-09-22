@@ -72,15 +72,28 @@ func run() error {
 		return fmt.Errorf("failed to ensure verification subscription (%s): %w", cfg.VerificationSubscription, err)
 	}
 
+	// Ensure user topic and subscription exist
+	userTopic, err := client.EnsureTopic(ctx, cfg.UserTopic)
+	if err != nil {
+		return fmt.Errorf("failed to ensure user topic (%s): %w", cfg.UserTopic, err)
+	}
+
+	userSub, err := client.EnsureSubscription(ctx, cfg.UserSubscription, userTopic)
+	if err != nil {
+		return fmt.Errorf("failed to ensure user subscription (%s): %w", cfg.UserSubscription, err)
+	}
+
 	slog.Info("Starting message processing",
 		"email_topic", cfg.EmailTopic,
 		"email_subscription", cfg.EmailSubscription,
 		"verification_topic", cfg.VerificationTopic,
 		"verification_subscription", cfg.VerificationSubscription,
+		"user_topic", cfg.UserTopic,
+		"user_subscription", cfg.UserSubscription,
 	)
 
 	// Error channel for goroutine errors
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 3)
 
 	// Start receiving email messages
 	go func() {
@@ -95,6 +108,15 @@ func run() error {
 	go func() {
 		if err := client.ReceiveVerification(ctx, verificationSub, handleVerificationMessage); err != nil {
 			errChan <- fmt.Errorf("verification message receiver failed: %w", err)
+		}
+	}()
+
+	// Start receiving user creation messages
+	go func() {
+		if err := client.ReceiveUser(ctx, userSub, func(ctx context.Context, payload *models.UserPayload) error {
+			return handleUserMessage(ctx, payload, emailService)
+		}); err != nil {
+			errChan <- fmt.Errorf("user message receiver failed: %w", err)
 		}
 	}()
 
@@ -279,5 +301,53 @@ func handleVerificationMessage(ctx context.Context, payload *models.Verification
 	)
 
 	// Return nil to acknowledge the message and remove it from queue
+	return nil
+}
+
+// handleUserMessage processes a user creation message and sends a welcome email
+func handleUserMessage(ctx context.Context, payload *models.UserPayload, emailService *email.ResendService) error {
+	logger := slog.With(
+		"user_id", payload.ID,
+		"user_email", payload.Email,
+		"user_name", payload.Name,
+	)
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("🆕 PROCESSANDO CRIAÇÃO DE USUÁRIO\n")
+	fmt.Printf("ID do Usuário: %s\n", payload.ID)
+	fmt.Printf("Nome: %s\n", payload.Name)
+	fmt.Printf("Email: %s\n", payload.Email)
+	if payload.Username != "" {
+		fmt.Printf("Username: %s\n", payload.Username)
+	}
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println()
+
+	logger.Info("Processing user creation")
+
+	// Create welcome email payload
+	welcomeEmail := &models.EmailPayload{
+		To:      payload.Email,
+		Subject: "Bem-vindo(a) à NorthFi!",
+		Body:    fmt.Sprintf("Olá %s,\n\nSeja bem-vindo(a) à NorthFi! Sua conta foi criada com sucesso.\n\nID do usuário: %s\nEmail: %s\n\nObrigado por se juntar a nós!\n\nEquipe NorthFi", payload.Name, payload.ID, payload.Email),
+	}
+
+	// Send welcome email using the existing email handler logic
+	fmt.Printf("📧 Enviando email de boas-vindas para %s...\n", payload.Email)
+	logger.Info("Sending welcome email", "recipient", payload.Email)
+
+	// Use the same retry logic as regular emails
+	err := handleEmailMessage(ctx, welcomeEmail, emailService)
+	if err != nil {
+		logger.Error("Failed to send welcome email", "error", err)
+		return fmt.Errorf("failed to send welcome email: %w", err)
+	}
+
+	fmt.Printf("✅ Usuario %s criado e email de boas-vindas enviado com sucesso!\n", payload.Name)
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println()
+
+	logger.Info("User creation processed successfully")
 	return nil
 }
