@@ -8,7 +8,7 @@ Este projeto implementa um worker assíncrono para processamento de emails utili
 
 ```
 go_integration/
-├── cmd/queue/main.go              # Ponto de entrada - apenas inicialização
+├── cmd/worker/main.go              # Ponto de entrada - apenas inicialização
 ├── internal/
 │   ├── config/config.go           # Configuração centralizada
 │   ├── email/
