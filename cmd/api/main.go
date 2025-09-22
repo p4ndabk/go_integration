@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"go_integration/internal/email"
 	"go_integration/internal/handlers"
 	"go_integration/internal/pubsub"
+	"go_integration/internal/user"
 )
 
 func main() {
@@ -60,14 +62,28 @@ func run() error {
 		return fmt.Errorf("failed to ensure verification topic (%s): %w", cfg.VerificationTopic, err)
 	}
 
+	userTopic, err := client.EnsureTopic(ctx, cfg.UserTopic)
+	if err != nil {
+		return fmt.Errorf("failed to ensure user topic (%s): %w", cfg.UserTopic, err)
+	}
+
 	// Initialize services
 	emailService := email.NewServiceWithVerification(topic, verificationTopic)
 	emailHandler := handlers.NewEmailHandler(emailService)
 
+	userService := user.NewService(userTopic)
+	userHandler := handlers.NewUserHandler(userService)
+
 	// Setup HTTP router
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	})
+	
 	mux.HandleFunc("POST /send-email", emailHandler.SendEmail)
 	mux.HandleFunc("POST /send-verification-email", handlers.SendVerificationEmail(emailService))
+	mux.HandleFunc("POST /create-user", userHandler.CreateUser)
 
 	// Configure HTTP server with proper timeouts
 	server := &http.Server{

@@ -20,6 +20,10 @@ type Config struct {
 	// Email verification topic and subscription
 	VerificationTopic        string
 	VerificationSubscription string
+
+	// User creation topic and subscription
+	UserTopic        string
+	UserSubscription string
 }
 
 // Load loads configuration from environment variables and .env file
@@ -36,6 +40,8 @@ func Load() *Config {
 		EmailSubscription:        getEnv("EMAIL_SUBSCRIPTION", "northfi.email.processing.worker.v1"),
 		VerificationTopic:        getEnv("VERIFICATION_TOPIC", "northfi.email.verification.v1"),
 		VerificationSubscription: getEnv("VERIFICATION_SUBSCRIPTION", "northfi.email.verification.worker.v1"),
+		UserTopic:                getEnv("USER_TOPIC", "northfi.user.creation.v1"),
+		UserSubscription:         getEnv("USER_SUBSCRIPTION", "northfi.user.creation.worker.v1"),
 	}
 }
 
