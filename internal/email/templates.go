@@ -156,8 +156,8 @@ func GetWelcomeEmailHTML(username, companyName string) string {
 	return template
 }
 
-// GetVerificationEmailHTML returns the HTML template for email verification
-func GetVerificationEmailHTML(username, companyName, verifyURL string) string {
+// GetVerificationEmailHTML returns the HTML template for email verification with code
+func GetVerificationEmailHTML(username, companyName, verificationCode string) string {
 	template := `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -179,14 +179,26 @@ func GetVerificationEmailHTML(username, companyName, verifyURL string) string {
     .body {padding:30px; color:#333; line-height:1.6;}
     .body h2 {margin-top:0; color:#1a73e8;}
 
-    .btn {display:inline-block; background:#1a73e8; padding:12px 20px; border-radius:6px; font-weight:bold; color:#ffffff !important; text-decoration:none !important; border:none; cursor:pointer;}
-    .btn:hover {background:#0d5aa7;}
+    .verification-code {
+      background: linear-gradient(135deg, #1a73e8 0%, #0d5aa7 100%);
+      color: #ffffff;
+      font-size: 32px;
+      font-weight: bold;
+      letter-spacing: 8px;
+      text-align: center;
+      padding: 25px;
+      border-radius: 12px;
+      margin: 30px 0;
+      font-family: 'Courier New', monospace;
+      box-shadow: 0 4px 15px rgba(26, 115, 232, 0.3);
+    }
 
     .footer {background:#f7f7f7; padding:20px; font-size:12px; text-align:center; color:#666;}
 
     @media only screen and (max-width:480px) {
       .header h1 {font-size:20px;}
       .body h2 {font-size:18px;}
+      .verification-code {font-size: 24px; letter-spacing: 4px; padding: 20px;}
     }
   </style>
 </head>
@@ -200,7 +212,7 @@ func GetVerificationEmailHTML(username, companyName, verifyURL string) string {
           <tr>
             <td class="header">
               <img src="https://northfi.com.br/img/logoNorthPreto.png" alt="` + companyName + `" style="max-width:200px; height:auto; margin-bottom:20px;">
-              <h1>Verificar Email</h1>
+              <h1>Código de Verificação</h1>
             </td>
           </tr>
 
@@ -210,16 +222,18 @@ func GetVerificationEmailHTML(username, companyName, verifyURL string) string {
               <h2>Olá, ` + username + `!</h2>
               <p>Para completar seu cadastro na ` + companyName + `, precisamos verificar seu endereço de email.</p>
 
-              <p>Clique no botão abaixo para confirmar seu email:</p>
+              <p>Use o código de verificação abaixo:</p>
 
-              <p style="margin:30px 0; text-align:center;">
-                <a href="` + verifyURL + `" target="_blank" class="btn" style="background:#1a73e8; color:#ffffff; padding:15px 30px; border-radius:6px; font-weight:bold; text-decoration:none; display:inline-block;">Verificar meu email</a>
-              </p>
+              <div class="verification-code">` + verificationCode + `</div>
 
-              <p>Se você não conseguir clicar no botão, copie e cole o link abaixo no seu navegador:</p>
-              <p style="word-break: break-all; color: #666; background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace;">` + verifyURL + `</p>
+              <p><strong>Instruções:</strong></p>
+              <ul>
+                <li>Digite este código no campo de verificação do site ou aplicativo</li>
+                <li>Este código expira em <strong>10 minutos</strong></li>
+                <li>O código é válido apenas uma vez</li>
+              </ul>
 
-              <p><strong>Este link expira em 24 horas.</strong></p>
+              <p>Se você não solicitou esta verificação, ignore este email e seu cadastro não será concluído.</p>
             </td>
           </tr>
 

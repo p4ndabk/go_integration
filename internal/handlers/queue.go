@@ -100,14 +100,21 @@ func (h *EmailQueueHandler) HandleVerificationMessage(ctx context.Context, paylo
 	logger := slog.With(
 		"recipient", payload.To,
 		"username", payload.Username,
-		"token", payload.Token,
+		"has_code", payload.Code != "",
+		"has_url", payload.VerifyURL != "",
 		"type", "verification_email",
 	)
 
 	logger.Info("Processing verification email message")
 
 	return h.retry(ctx, 3, 2*time.Second, func() error {
-		htmlContent := email.GetVerificationEmailHTML(payload.Username, "NorthFi", payload.VerifyURL)
+		// Use verification code if available, otherwise fall back to URL
+		verificationData := payload.Code
+		if verificationData == "" {
+			verificationData = payload.VerifyURL
+		}
+
+		htmlContent := email.GetVerificationEmailHTML(payload.Username, "NorthFi", verificationData)
 		return h.emailService.SendEmailWithHTML(payload.To, payload.GenerateSubject(), htmlContent)
 	}, logger, "send_verification_email")
 }

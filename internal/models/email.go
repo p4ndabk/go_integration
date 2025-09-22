@@ -77,8 +77,9 @@ func (e *EmailPayload) GenerateBody() string {
 type VerificationEmailPayload struct {
 	To        string `json:"to"`
 	Username  string `json:"username"`
-	Token     string `json:"token"`
-	VerifyURL string `json:"verify_url"`
+	Token     string `json:"token,omitempty"`      // Optional: for backward compatibility
+	Code      string `json:"code,omitempty"`       // Verification code
+	VerifyURL string `json:"verify_url,omitempty"` // Optional: for backward compatibility
 }
 
 // Validate validates the verification email payload
@@ -89,11 +90,9 @@ func (v *VerificationEmailPayload) Validate() error {
 	if v.Username == "" {
 		return &ValidationError{Field: "username", Message: "username is required"}
 	}
-	if v.Token == "" {
-		return &ValidationError{Field: "token", Message: "token is required"}
-	}
-	if v.VerifyURL == "" {
-		return &ValidationError{Field: "verify_url", Message: "verify_url is required"}
+	// Either code or verify_url must be provided (or both for backward compatibility)
+	if v.Code == "" && v.VerifyURL == "" {
+		return &ValidationError{Field: "code_or_url", Message: "either verification code or verify_url is required"}
 	}
 	return nil
 }

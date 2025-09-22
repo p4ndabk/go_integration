@@ -98,7 +98,7 @@ Pub/Sub → EmailQueueHandler.HandleUserMessage → HandleWelcomeMessage → Exe
 
 ### 3. Email de Verificação
 ```
-Pub/Sub → EmailQueueHandler.HandleVerificationMessage → ExecuteWithRetry → ResendService → Template Verification
+Pub/Sub → EmailQueueHandler.HandleVerificationMessage → ExecuteWithRetry → ResendService → Template Verification (Code/URL)
 ```
 
 ## Vantagens da Arquitetura
