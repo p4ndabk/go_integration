@@ -1,5 +1,76 @@
 package email
 
+// GetDefaultEmailHTML returns the HTML template for regular emails using payload content
+func GetDefaultEmailHTML(subject, body, companyName string) string {
+	template := `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>` + subject + `</title>
+  <style>
+    body,table,td {font-family: Arial, Helvetica, sans-serif; margin:0; padding:0;}
+    img {border:0; display:block;}
+    a {color:#ffffff; text-decoration:none}
+
+    .wrapper {width:100%; background:#f0f2f5; padding:30px 0;}
+    .content {max-width:600px; background:#ffffff; margin:0 auto; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08)}
+
+    .header {background:#1a73e8; padding:30px; text-align:center; color:#fff;}
+    .header h1 {margin:0; font-size:24px;}
+    .header img {max-width:200px; height:auto; margin:0 auto 20px auto; display:block; background:#ffffff; padding:10px; border-radius:8px;}
+
+    .body {padding:30px; color:#333; line-height:1.6;}
+    .body h2 {margin-top:0; color:#1a73e8;}
+
+    .btn {display:inline-block; background:#1a73e8; padding:12px 20px; border-radius:6px; font-weight:bold; color:#ffffff;}
+
+    .footer {background:#f7f7f7; padding:20px; font-size:12px; text-align:center; color:#666;}
+
+    @media only screen and (max-width:480px) {
+      .header h1 {font-size:20px;}
+      .body h2 {font-size:18px;}
+    }
+  </style>
+</head>
+<body>
+  <table role="presentation" class="wrapper" width="100%" cellspacing="0" cellpadding="0">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="content" width="100%" cellspacing="0" cellpadding="0">
+          
+          <!-- Header -->
+          <tr>
+            <td class="header">
+              <img src="https://northfi.com.br/img/logoNorthPreto.png" alt="` + companyName + `" style="max-width:200px; height:auto; margin-bottom:20px;">
+              <h1>` + subject + `</h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td class="body">
+              <div style="white-space: pre-line;">` + body + `</div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td class="footer">
+              <p>Você recebeu este e-mail de ` + companyName + `.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+
+	return template
+}
+
 // GetWelcomeEmailHTML returns the HTML template for welcome emails
 func GetWelcomeEmailHTML(username, companyName string) string {
 	template := `<!doctype html>
@@ -72,8 +143,6 @@ func GetWelcomeEmailHTML(username, companyName string) string {
           <tr>
             <td class="footer">
               <p>Você recebeu este e-mail porque se cadastrou em ` + companyName + `.</p>
-              <p>Endereço da empresa • Cidade • Estado</p>
-              <p><a href="#">Cancelar inscrição</a></p>
             </td>
           </tr>
 

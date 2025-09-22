@@ -132,7 +132,7 @@ func run() error {
 	return nil
 }
 
-// handleEmailMessage processes and sends an email message with retry logic
+// handleEmailMessage processes and sends a regular email message with HTML template and retry logic
 func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, emailService *email.ResendService) error {
 	logger := slog.With(
 		"recipient", payload.To,
@@ -140,17 +140,13 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, email
 	)
 
 	fmt.Println(strings.Repeat("-", 50))
-	fmt.Printf("Processando email...\n")
+	fmt.Printf("Processando email padrão...\n")
 	fmt.Printf("Destinatário: %s\n", payload.To)
 	fmt.Printf("Assunto: %s\n", payload.Subject)
 	fmt.Printf("Mensagem: %s\n", payload.Body)
 	fmt.Println()
 
-	logger.Info("Processing email")
-
-	// Check if it's a welcome email
-	isWelcomeEmail := strings.Contains(strings.ToLower(payload.Subject), "bem-vindo") ||
-		strings.Contains(strings.ToLower(payload.Subject), "welcome")
+	logger.Info("Processing regular email")
 
 	// Retry logic: attempt up to 3 times
 	maxRetries := 3
@@ -159,38 +155,22 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, email
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		attemptLogger := logger.With("attempt", attempt, "max_retries", maxRetries)
 
-		fmt.Printf("[INFO] Tentativa %d/%d - Enviando via Resend...\n", attempt, maxRetries)
-		attemptLogger.Info("Sending email attempt")
+		fmt.Printf("[INFO] Tentativa %d/%d - Enviando email HTML via Resend...\n", attempt, maxRetries)
+		attemptLogger.Info("Sending regular email attempt")
 
-		var err error
-		if isWelcomeEmail {
-			// Send HTML email for welcome messages
-			htmlContent := email.GetWelcomeEmailHTML("Usuário", "NorthFi")
-			err = emailService.SendEmailWithHTML(payload.To, payload.Subject, htmlContent)
-		} else {
-			// Send regular text email
-			err = emailService.SendEmail(payload.To, payload.Subject, payload.Body)
-		}
+		// Send HTML email using default template
+		htmlContent := email.GetDefaultEmailHTML(payload.Subject, payload.Body, "NorthFi")
+		err := emailService.SendEmailWithHTML(payload.To, payload.Subject, htmlContent)
 
 		if err == nil {
 			// Success! Email sent
 			fmt.Printf("[SUCCESS] ✅ Email enviado com sucesso na tentativa %d!\n", attempt)
-			if isWelcomeEmail {
-				fmt.Printf("Status: Template HTML de boas-vindas enviado via Resend\n")
-				fmt.Printf("Tipo: Email de Boas-Vindas (HTML)\n")
-			} else {
-				fmt.Printf("Status: Email texto enviado via Resend\n")
-				fmt.Printf("Tipo: Email Regular (Texto)\n")
-			}
+			fmt.Printf("Status: Email HTML enviado via Resend\n")
+			fmt.Printf("Tipo: Email Regular (HTML)\n")
 			fmt.Println(strings.Repeat("-", 50))
 			fmt.Println()
 
-			attemptLogger.Info("Email sent successfully",
-				"type", map[string]string{
-					"welcome": "HTML",
-					"regular": "text",
-				}[map[bool]string{true: "welcome", false: "regular"}[isWelcomeEmail]],
-			)
+			attemptLogger.Info("Regular email sent successfully", "type", "HTML")
 			return nil
 		}
 
@@ -216,6 +196,80 @@ func handleEmailMessage(ctx context.Context, payload *models.EmailPayload, email
 	fmt.Println()
 
 	logger.Error("All retry attempts failed, removing from queue",
+		"max_retries", maxRetries,
+		"last_error", lastErr,
+	)
+
+	// Return nil to acknowledge the message and remove it from queue
+	// Even though sending failed, we don't want to keep retrying indefinitely
+	return nil
+}
+
+// handleWelcomeEmailMessage processes and sends a welcome email with HTML template and retry logic
+func handleWelcomeEmailMessage(ctx context.Context, payload *models.EmailPayload, emailService *email.ResendService, userName string) error {
+	logger := slog.With(
+		"recipient", payload.To,
+		"subject", payload.Subject,
+		"user_name", userName,
+	)
+
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Processando email de boas-vindas...\n")
+	fmt.Printf("Destinatário: %s\n", payload.To)
+	fmt.Printf("Assunto: %s\n", payload.Subject)
+	fmt.Printf("Nome do usuário: %s\n", userName)
+	fmt.Println()
+
+	logger.Info("Processing welcome email")
+
+	// Retry logic: attempt up to 3 times
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		attemptLogger := logger.With("attempt", attempt, "max_retries", maxRetries)
+
+		fmt.Printf("[INFO] Tentativa %d/%d - Enviando email HTML de boas-vindas via Resend...\n", attempt, maxRetries)
+		attemptLogger.Info("Sending welcome email attempt")
+
+		// Send HTML welcome email
+		htmlContent := email.GetWelcomeEmailHTML(userName, "NorthFi")
+		err := emailService.SendEmailWithHTML(payload.To, payload.Subject, htmlContent)
+
+		if err == nil {
+			// Success! Email sent
+			fmt.Printf("[SUCCESS] ✅ Email de boas-vindas enviado com sucesso na tentativa %d!\n", attempt)
+			fmt.Printf("Status: Template HTML de boas-vindas enviado via Resend\n")
+			fmt.Printf("Tipo: Email de Boas-Vindas (HTML)\n")
+			fmt.Println(strings.Repeat("-", 50))
+			fmt.Println()
+
+			attemptLogger.Info("Welcome email sent successfully", "type", "HTML")
+			return nil
+		}
+
+		// Failed attempt
+		lastErr = err
+		fmt.Printf("[ERROR] ❌ Tentativa %d falhou: resend API returned status 403\n", attempt)
+		fmt.Printf("Detalhes: You can only send testing emails to your own email address (ti@northficoin.com.br).\n")
+
+		attemptLogger.Error("Welcome email sending failed", "error", err)
+
+		// If this is not the last attempt, wait before retrying
+		if attempt < maxRetries {
+			fmt.Printf("[WAIT] ⏳ Aguardando 2 segundos antes da próxima tentativa...\n")
+			fmt.Println()
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	// All retries failed, remove message from queue
+	fmt.Printf("[FATAL] 💀 Todas as %d tentativas falharam. Removendo mensagem da fila.\n", maxRetries)
+	fmt.Printf("Último erro: resend API returned status 403\n")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Println()
+
+	logger.Error("All welcome email retry attempts failed, removing from queue",
 		"max_retries", maxRetries,
 		"last_error", lastErr,
 	)
@@ -333,12 +387,12 @@ func handleUserMessage(ctx context.Context, payload *models.UserPayload, emailSe
 		Body:    fmt.Sprintf("Olá %s,\n\nSeja bem-vindo(a) à NorthFi! Sua conta foi criada com sucesso.\n\nID do usuário: %s\nEmail: %s\n\nObrigado por se juntar a nós!\n\nEquipe NorthFi", payload.Name, payload.ID, payload.Email),
 	}
 
-	// Send welcome email using the existing email handler logic
+	// Send welcome email using the specific welcome email handler
 	fmt.Printf("📧 Enviando email de boas-vindas para %s...\n", payload.Email)
 	logger.Info("Sending welcome email", "recipient", payload.Email)
 
-	// Use the same retry logic as regular emails
-	err := handleEmailMessage(ctx, welcomeEmail, emailService)
+	// Use the welcome email handler with user name
+	err := handleWelcomeEmailMessage(ctx, welcomeEmail, emailService, payload.Name)
 	if err != nil {
 		logger.Error("Failed to send welcome email", "error", err)
 		return fmt.Errorf("failed to send welcome email: %w", err)
